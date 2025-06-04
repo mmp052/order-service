@@ -2,6 +2,8 @@ package store.order;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cache.annotation.Cacheable;
+import org.springframework.cache.annotation.CacheEvict; // Importação adicionada
+import org.springframework.cache.annotation.CachePut;   // Importação adicionada
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
@@ -24,7 +26,9 @@ public class OrderService {
     @Autowired
     private RestTemplate restTemplate;
 
-    @Cacheable("products")
+    // Cache para resultados de produtos vindos do microsserviço de produtos.
+    // Chave: o ID do produto.
+    @Cacheable(value = "products", key = "#id")
     private ProductOut findProductById(String id) {
         String url = "http://product:8080/product/" + id;
         try {
@@ -33,13 +37,19 @@ public class OrderService {
             if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
                 return response.getBody();
             } else {
-                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Product not found");
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Product not found from external service");
             }
         } catch (Exception e) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Product not found");
+            System.err.println("Error calling product service for ID " + id + ": " + e.getMessage());
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Product not found or external service error");
         }
     }
 
+    // Ao criar um pedido, precisamos invalidar os caches relacionados a pedidos.
+    // 1. O cache da lista de pedidos por conta (findAllByAccount).
+    // 2. Potencialmente o cache do pedido individual (embora um novo pedido não existisse no cache antes).
+    @CacheEvict(value = "orders", allEntries = true) // Invalida todas as listas de pedidos por conta
+    // @CachePut(value = "orders", key = "#result.id") // Opcional: Se quiser cachear o pedido recém-criado individualmente
     public OrderOut create(OrderIn orderIn, String idAccount){
 
         if (orderIn.items() == null || orderIn.items().isEmpty()) {
@@ -59,6 +69,7 @@ public class OrderService {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Item quantity must be greater than zero");
             }
 
+            // O findProductById usa cache, o que é bom aqui.
             ProductOut product = findProductById(itemIn.idProduct());
             products.add(product);
 
@@ -80,12 +91,12 @@ public class OrderService {
 
         // Salvar o pedido
         OrderModel savedOrder = orderRepository.save(new OrderModel(order));
-        order = savedOrder.to();
+        order = savedOrder.to(); // Atualiza o objeto 'order' com o ID gerado pelo banco
 
         // Salvar os itens do pedido
         List<Item> savedItems = new ArrayList<>();
         for (Item item : orderItems) {
-            item.idOrder(order.id());
+            item.idOrder(order.id()); // Associa o item ao ID do pedido salvo
             ItemModel savedItem = itemRepository.save(new ItemModel(item));
             savedItems.add(savedItem.to());
         }
@@ -94,8 +105,10 @@ public class OrderService {
         return OrderParser.to(order, savedItems, products);
     }
 
-    @Cacheable("orders")
+    // Cache para a lista de pedidos de uma conta. Chave: o ID da conta.
+    @Cacheable(value = "orders", key = "'accountOrders-' + #idAccount") // Chave composta para listas por conta
     public List<OrderOut> findAllByAccount(String idAccount) {
+        System.out.println("Buscando todos os pedidos da conta " + idAccount + " do banco de dados.");
         List<OrderOut> result = new ArrayList<>();
         for (OrderModel orderModel : orderRepository.findByIdAccount(idAccount)) {
             Order order = orderModel.to();
@@ -112,8 +125,10 @@ public class OrderService {
         return result;
     }
 
-    @Cacheable("orders")
+    // Cache para um pedido individual. Chave: o ID do pedido.
+    @Cacheable(value = "orders", key = "#id")
     public OrderOut findByIdAndAccount(String id, String idAccount) {
+        System.out.println("Buscando pedido " + id + " para conta " + idAccount + " do banco de dados.");
         // Buscar o pedido
         OrderModel orderModel = orderRepository.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Order not found"));
@@ -122,7 +137,7 @@ public class OrderService {
 
         // Verificar se o pedido pertence ao usuário atual
         if (!order.idAccount().equals(idAccount)) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Order not found");
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Access to order denied: " + id); // Use FORBIDDEN para acesso negado
         }
 
         // Buscar os itens do pedido
@@ -131,7 +146,6 @@ public class OrderService {
             items.add(itemModel.to());
         }
 
-        // Buscar os produtos usando RestTemplate
         List<ProductOut> products = new ArrayList<>();
         for (Item item : items) {
             ProductOut product = findProductById(item.idProduct());
@@ -140,7 +154,9 @@ public class OrderService {
             }
         }
 
-        // Montar resposta
+
         return OrderParser.to(order, items, products);
     }
+
+
 }
