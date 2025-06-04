@@ -5,7 +5,7 @@ CREATE TABLE orders.orders (
     id_account    VARCHAR(36)    NOT NULL
 );
 
-CREATE TABLE orders.item (
+CREATE TABLE orders.items (
     id_item    VARCHAR(36)    NOT NULL PRIMARY KEY,
     id_order   VARCHAR(36)    NOT NULL,
     id_product VARCHAR(36)    NOT NULL,
