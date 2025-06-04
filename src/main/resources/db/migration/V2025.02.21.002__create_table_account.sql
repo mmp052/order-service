@@ -2,7 +2,7 @@ CREATE TABLE orders.orders (
     id_order   VARCHAR(36)    NOT NULL PRIMARY KEY,
     order_date       TIMESTAMP      NOT NULL,
     total      DECIMAL(10,2)  NOT NULL,
-    id_user    VARCHAR(36)    NOT NULL
+    id_account    VARCHAR(36)    NOT NULL
 );
 
 CREATE TABLE orders.item (
