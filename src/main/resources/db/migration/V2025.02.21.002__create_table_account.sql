@@ -1,6 +1,6 @@
 CREATE TABLE orders.orders (
     id_order   VARCHAR(36)    NOT NULL PRIMARY KEY,
-    date       TIMESTAMP      NOT NULL,
+    order_date       TIMESTAMP      NOT NULL,
     total      DECIMAL(10,2)  NOT NULL,
     id_user    VARCHAR(36)    NOT NULL
 );
